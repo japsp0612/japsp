@@ -32,7 +32,7 @@ dados = carregar_dados(acoes)
 
 # título
 st.write("""
-# 📊 App Preços de Ações (B3 via Brapi)
+# 📊 App Preços de Ações
 O gráfico abaixo mostra a evolução do preço das ações ao longo do tempo.
 """)
 
