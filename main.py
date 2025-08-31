@@ -146,14 +146,18 @@ def login_page():
         st.session_state.show_reset_form = True
 
     if st.session_state.show_reset_form:
-        email_to_reset = st.text_input("Informe seu e-mail para recuperar a senha:")
-        if st.button("Enviar e-mail de recuperação"):
-            if not email_to_reset:
-                show_message("Atenção", "Informe seu e-mail.")
-            else:
-                reset_password(email_to_reset)
-                show_message("Sucesso", "E-mail de recuperação enviado! Verifique sua caixa de entrada.")
-                st.session_state.show_reset_form = False
+        with st.form("reset_password_form"):
+            email_to_reset = st.text_input("Informe seu e-mail para recuperar a senha:", key="reset_email_input")
+            reset_button = st.form_submit_button("Enviar e-mail de recuperação")
+            
+            if reset_button:
+                if not email_to_reset:
+                    show_message("Atenção", "Informe seu e-mail.")
+                else:
+                    with st.spinner("Enviando e-mail..."):
+                        reset_password(email_to_reset)
+                        show_message("Sucesso", "E-mail de recuperação enviado! Verifique sua caixa de entrada.")
+                        st.session_state.show_reset_form = False
 
 def cadastro_page():
     """Renderiza a página de cadastro."""
@@ -228,8 +232,9 @@ def perfil_page():
                 st.session_state.user_info = {}
 
     # Seção da foto de perfil
-    # Usando o st.container para centralizar os elementos
-    with st.container():
+    # Usando o st.columns para centralizar os elementos
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
         photo_url = st.session_state.user_info.get('foto_perfil')
         
@@ -243,6 +248,8 @@ def perfil_page():
                     object-fit: cover;
                     border: 3px solid #ddd;
                     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                    display: block;
+                    margin: 0 auto;
                 }
             </style>
         """
