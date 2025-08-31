@@ -194,7 +194,8 @@ def cadastro_page():
 
 def home_page():
     """Renderiza a página inicial."""
-    st.markdown("<h2 style='text-align: center;'>Bem-vindo!</h2>", unsafe_allow_html=True)
+    user_name = st.session_state.user_info.get('nome', '')
+    st.markdown(f"<h2 style='text-align: center;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("Ver Perfil"):
