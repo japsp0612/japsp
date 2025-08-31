@@ -24,6 +24,8 @@ if 'local_id' not in st.session_state:
     st.session_state.local_id = None
 if 'user_info' not in st.session_state:
     st.session_state.user_info = {}
+if 'show_reset_form' not in st.session_state:
+    st.session_state.show_reset_form = False
 
 # --- Funções de Ajuda ---
 def show_message(title, message, type="info"):
@@ -141,13 +143,17 @@ def login_page():
             show_message("Atenção", "Faça login primeiro para reenviar o e-mail.")
 
     if st.button("Esqueceu a senha?"):
-        email_to_reset = st.text_input("Informe seu e-mail para recuperar a senha:", key="reset_email")
+        st.session_state.show_reset_form = True
+
+    if st.session_state.show_reset_form:
+        email_to_reset = st.text_input("Informe seu e-mail para recuperar a senha:")
         if st.button("Enviar e-mail de recuperação"):
             if not email_to_reset:
                 show_message("Atenção", "Informe seu e-mail.")
             else:
                 reset_password(email_to_reset)
                 show_message("Sucesso", "E-mail de recuperação enviado! Verifique sua caixa de entrada.")
+                st.session_state.show_reset_form = False
 
 def cadastro_page():
     """Renderiza a página de cadastro."""
@@ -222,52 +228,54 @@ def perfil_page():
                 st.session_state.user_info = {}
 
     # Seção da foto de perfil
-    st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-    photo_url = st.session_state.user_info.get('foto_perfil')
-    
-    # CSS para a imagem redonda e maior
-    css_style = """
-        <style>
-            .profile-picture {
-                border-radius: 50%;
-                width: 200px; /* Aumenta o tamanho da imagem */
-                height: 200px; /* Aumenta o tamanho da imagem */
-                object-fit: cover;
-                border: 3px solid #ddd;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            }
-        </style>
-    """
-    st.markdown(css_style, unsafe_allow_html=True)
+    # Usando o st.container para centralizar os elementos
+    with st.container():
+        st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+        photo_url = st.session_state.user_info.get('foto_perfil')
+        
+        # CSS para a imagem redonda e maior
+        css_style = """
+            <style>
+                .profile-picture {
+                    border-radius: 50%;
+                    width: 200px; /* Aumenta o tamanho da imagem */
+                    height: 200px; /* Aumenta o tamanho da imagem */
+                    object-fit: cover;
+                    border: 3px solid #ddd;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                }
+            </style>
+        """
+        st.markdown(css_style, unsafe_allow_html=True)
 
-    # Exibe a foto de perfil com a classe CSS
-    if photo_url:
-        st.markdown(f'<img src="{photo_url}" class="profile-picture" alt="Foto de Perfil">', unsafe_allow_html=True)
-    else:
-        st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture" alt="Sem Foto">', unsafe_allow_html=True)
-    
-    # Exibe o nome completo do usuário
-    full_name = f"{st.session_state.user_info.get('nome', '')} {st.session_state.user_info.get('sobrenome', '')}"
-    st.markdown(f"<h3 style='text-align: center;'>{full_name}</h3>", unsafe_allow_html=True)
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+        # Exibe a foto de perfil com a classe CSS
+        if photo_url:
+            st.markdown(f'<img src="{photo_url}" class="profile-picture" alt="Foto de Perfil">', unsafe_allow_html=True)
+        else:
+            st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture" alt="Sem Foto">', unsafe_allow_html=True)
+        
+        # Exibe o nome completo do usuário
+        full_name = f"{st.session_state.user_info.get('nome', '')} {st.session_state.user_info.get('sobrenome', '')}"
+        st.markdown(f"<h3 style='text-align: center;'>{full_name}</h3>", unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Move a opção de carregar a foto para baixo da imagem de perfil
-    uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        with st.spinner("Enviando foto..."):
-            photo_data = uploaded_file.getvalue()
-            response = upload_profile_photo(st.session_state.local_id, photo_data)
-            if response.status_code in (200, 201):
-                link_foto = f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/{st.session_state.local_id}.jpg?alt=media&time={int(time.time())}"
-                save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, {"foto_perfil": link_foto})
-                if save_response.status_code == 200:
-                    st.session_state.user_info['foto_perfil'] = link_foto
-                    show_message("Sucesso", "Foto de perfil atualizada.")
+        # Move a opção de carregar a foto para baixo da imagem de perfil
+        uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg", "jpeg", "png"])
+        if uploaded_file:
+            with st.spinner("Enviando foto..."):
+                photo_data = uploaded_file.getvalue()
+                response = upload_profile_photo(st.session_state.local_id, photo_data)
+                if response.status_code in (200, 201):
+                    link_foto = f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/{st.session_state.local_id}.jpg?alt=media&time={int(time.time())}"
+                    save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, {"foto_perfil": link_foto})
+                    if save_response.status_code == 200:
+                        st.session_state.user_info['foto_perfil'] = link_foto
+                        show_message("Sucesso", "Foto de perfil atualizada.")
+                    else:
+                        show_message("Erro", "Erro ao salvar link da foto no banco.", "error")
                 else:
-                    show_message("Erro", "Erro ao salvar link da foto no banco.", "error")
-            else:
-                show_message("Erro", f"Erro ao enviar foto: {response.text}", "error")
+                    show_message("Erro", f"Erro ao enviar foto: {response.text}", "error")
 
     # Formulário de dados do perfil
     with st.form("perfil_form"):
