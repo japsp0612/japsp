@@ -252,6 +252,7 @@ def perfil_page():
     
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # Move a opção de carregar a foto para baixo da imagem de perfil
     uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg", "jpeg", "png"])
     if uploaded_file:
         with st.spinner("Enviando foto..."):
