@@ -223,10 +223,32 @@ def perfil_page():
     # Seção da foto de perfil
     st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
     photo_url = st.session_state.user_info.get('foto_perfil')
+    
+    # CSS para a imagem redonda e menor
+    css_style = """
+        <style>
+            .profile-picture {
+                border-radius: 50%;
+                width: 150px;
+                height: 150px;
+                object-fit: cover;
+                border: 3px solid #ddd;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            }
+        </style>
+    """
+    st.markdown(css_style, unsafe_allow_html=True)
+
+    # Exibe a foto de perfil com a classe CSS
     if photo_url:
-        st.image(photo_url, caption="Foto de Perfil")
+        st.markdown(f'<img src="{photo_url}" class="profile-picture" alt="Foto de Perfil">', unsafe_allow_html=True)
     else:
-        st.image("https://placehold.co/150x150?text=Sem+Foto", caption="Sem Foto de Perfil")
+        st.markdown('<img src="https://placehold.co/150x150?text=Sem+Foto" class="profile-picture" alt="Sem Foto">', unsafe_allow_html=True)
+    
+    # Exibe o nome completo do usuário
+    full_name = f"{st.session_state.user_info.get('nome', '')} {st.session_state.user_info.get('sobrenome', '')}"
+    st.markdown(f"<h3 style='text-align: center;'>{full_name}</h3>", unsafe_allow_html=True)
+    
     st.markdown("</div>", unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg", "jpeg", "png"])
