@@ -225,13 +225,13 @@ def perfil_page():
     st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
     photo_url = st.session_state.user_info.get('foto_perfil')
     
-    # CSS para a imagem redonda e menor
+    # CSS para a imagem redonda e maior
     css_style = """
         <style>
             .profile-picture {
                 border-radius: 50%;
-                width: 150px;
-                height: 150px;
+                width: 200px; /* Aumenta o tamanho da imagem */
+                height: 200px; /* Aumenta o tamanho da imagem */
                 object-fit: cover;
                 border: 3px solid #ddd;
                 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -244,7 +244,7 @@ def perfil_page():
     if photo_url:
         st.markdown(f'<img src="{photo_url}" class="profile-picture" alt="Foto de Perfil">', unsafe_allow_html=True)
     else:
-        st.markdown('<img src="https://placehold.co/150x150?text=Sem+Foto" class="profile-picture" alt="Sem Foto">', unsafe_allow_html=True)
+        st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture" alt="Sem Foto">', unsafe_allow_html=True)
     
     # Exibe o nome completo do usuário
     full_name = f"{st.session_state.user_info.get('nome', '')} {st.session_state.user_info.get('sobrenome', '')}"
