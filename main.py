@@ -98,14 +98,9 @@ def login_page():
     with st.form("login_form"):
         email = st.text_input("E-mail", placeholder="E-mail")
         password = st.text_input("Senha", placeholder="Senha", type="password")
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            login_button = st.form_submit_button("Entrar")
-        with col2:
-            st.write("") # Espaçador
-            if st.button("Criar uma conta"):
-                navigate_to('cadastro')
+        login_button = st.form_submit_button("Entrar")
 
+    # Botões fora do formulário para evitar o erro "StreamlitAPIException"
     if login_button:
         if not email or not password:
             show_message("Atenção", "Preencha todos os campos.", "error")
@@ -133,6 +128,11 @@ def login_page():
                 else:
                     show_message("Erro", "Erro ao fazer login. Verifique seu e-mail e senha.", "error")
 
+    # Botões de navegação e recuperação de senha fora do formulário de login
+    st.markdown("---") # Separador visual para melhor organização
+    if st.button("Criar uma conta"):
+        navigate_to('cadastro')
+
     if st.button("Reenviar verificação de e-mail"):
         if st.session_state.id_token:
             send_verification_email(st.session_state.id_token)
@@ -158,13 +158,7 @@ def cadastro_page():
         telefone = st.text_input("Telefone (com DDD)", placeholder="Telefone (com DDD)")
         email = st.text_input("E-mail", placeholder="E-mail")
         senha = st.text_input("Senha", placeholder="Senha", type="password")
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            cadastro_button = st.form_submit_button("Cadastrar")
-        with col2:
-            st.write("") # Espaçador
-            if st.button("Já tem uma conta? Login"):
-                navigate_to('login')
+        cadastro_button = st.form_submit_button("Cadastrar")
 
     if cadastro_button:
         if not all([nome, sobrenome, telefone, email, senha]):
@@ -193,6 +187,10 @@ def cadastro_page():
                         show_message("Erro", "Erro ao salvar dados do usuário.", "error")
                 else:
                     show_message("Erro", "Erro ao cadastrar. Verifique se o e-mail já está em uso.", "error")
+
+    # Botão de navegação fora do formulário de cadastro
+    if st.button("Já tem uma conta? Login"):
+        navigate_to('login')
 
 def home_page():
     """Renderiza a página inicial."""
