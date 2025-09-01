@@ -6,18 +6,24 @@ import pandas as pd
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
-# --- Carregando chaves do Firebase e Binance ---
+# --- Carregando chaves do Firebase ---
 try:
     API_KEY = st.secrets["firebase"]["api_key"]
     PROJECT_URL = st.secrets["firebase"]["project_url"]
     STORAGE_BUCKET = st.secrets["firebase"]["storage_bucket"]
+except KeyError:
+    st.error("As chaves do Firebase não foram encontradas. Adicione no arquivo `.streamlit/secrets.toml`.")
+    st.stop()
+
+# --- Chaves Binance ---
+try:
     BINANCE_API_KEY = st.secrets["binance"]["api_key"]
     BINANCE_API_SECRET = st.secrets["binance"]["api_secret"]
 except KeyError:
-    st.error("As chaves do Firebase ou Binance não foram encontradas. Verifique `.streamlit/secrets.toml`.")
+    st.error("As chaves da Binance não foram encontradas. Adicione no secrets.toml.")
     st.stop()
 
-client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
+binance_client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 
 # --- Gerenciamento de Estado ---
 if 'page' not in st.session_state:
@@ -30,8 +36,6 @@ if 'user_info' not in st.session_state:
     st.session_state.user_info = {}
 if 'show_reset_form' not in st.session_state:
     st.session_state.show_reset_form = False
-if 'deposits' not in st.session_state:
-    st.session_state.deposits = []
 
 # --- Funções de Ajuda ---
 def show_message(title, message, type="info"):
@@ -83,52 +87,25 @@ def get_user_data_from_db(local_id, id_token):
     url = f"{PROJECT_URL}/usuarios/{local_id}.json?auth={id_token}"
     return requests.get(url)
 
-# --- Depósito USDT Real ---
-def get_usdt_deposit_address():
-    """Pega o endereço de depósito USDT da sua Binance"""
+# --- Binance Funções de Depósito ---
+def get_deposit_history(asset="USDT"):
+    """Retorna depósitos confirmados da Binance"""
     try:
-        info = client.get_deposit_address(asset='USDT', network='TRX')  # Exemplo TRC20
-        return info['address'], info.get('tag')
+        deposits = binance_client.get_deposit_history(asset=asset)
+        return deposits.get('depositList', [])
     except BinanceAPIException as e:
-        show_message("Erro Binance", str(e), "error")
-        return None, None
+        st.error(f"Erro ao consultar Binance: {str(e)}")
+        return []
 
-def check_deposits():
-    """Verifica depósitos recebidos via Binance"""
-    try:
-        deposits = client.get_deposit_history(asset='USDT')
-        confirmed = []
-        for dep in deposits:
-            if dep['status'] == 1:  # 1 = confirmado
-                confirmed.append({
-                    'amount': dep['amount'],
-                    'txId': dep['txId'],
-                    'insertTime': dep['insertTime']
-                })
-        st.session_state.deposits = confirmed
-    except BinanceAPIException as e:
-        show_message("Erro Binance", str(e), "error")
-
-def deposits_page():
-    st.markdown("<h2 style='text-align: center;'>Depósitos USDT</h2>", unsafe_allow_html=True)
-    
-    address, tag = get_usdt_deposit_address()
-    if address:
-        st.markdown(f"**Deposite USDT na sua conta Binance:**")
-        st.code(f"Endereço: {address}")
-        if tag:
-            st.code(f"Tag/Memo: {tag}")
-        st.markdown("Após o depósito, clique em 'Verificar Depósitos' para atualizar o status.")
-    
-    if st.button("Verificar Depósitos"):
-        with st.spinner("Consultando Binance..."):
-            check_deposits()
-            if st.session_state.deposits:
-                st.success("Depósitos confirmados:")
-                for dep in st.session_state.deposits:
-                    st.write(f"TxID: {dep['txId']} | Valor: {dep['amount']}")
-            else:
-                st.info("Nenhum depósito confirmado ainda.")
+def check_user_deposit(user_id, expected_amount, asset="USDT"):
+    """Verifica se o usuário enviou a quantia informada"""
+    deposits = get_deposit_history(asset)
+    for dep in deposits:
+        if float(dep['amount']) == expected_amount and dep['status'] == 1:
+            # Atualiza saldo no Firebase
+            save_user_data_to_db(user_id, st.session_state.id_token, {"saldo": expected_amount})
+            return True
+    return False
 
 # --- Telas ---
 def login_page():
@@ -203,7 +180,7 @@ def cadastro_page():
                     st.session_state.id_token = data['idToken']
                     st.session_state.local_id = data['localId']
                     
-                    user_data = {"nome": nome, "sobrenome": sobrenome, "telefone": telefone, "email": email}
+                    user_data = {"nome": nome, "sobrenome": sobrenome, "telefone": telefone, "email": email, "saldo": 0.0}
                     save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, user_data)
                     if save_response.status_code == 200:
                         send_verification_email(st.session_state.id_token)
@@ -218,15 +195,18 @@ def cadastro_page():
         navigate_to('login')
 
 def home_page():
-    """Home com painel de ações + depósito"""
+    """Home com painel de ações"""
     user_name = st.session_state.user_info.get('nome', '')
     st.markdown(f"<h2 style='text-align: center;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns([1,1])
+    col1, col2, col3 = st.columns([1,1,1])
     with col1:
         if st.button("Ver Perfil"):
             navigate_to('perfil')
     with col2:
+        if st.button("Depósito"):
+            navigate_to('deposito')
+    with col3:
         if st.button("Sair"):
             st.session_state.id_token = None
             st.session_state.local_id = None
@@ -253,12 +233,9 @@ def home_page():
     st.subheader("Gráfico de Preço das Ações Selecionadas")
     st.bar_chart(df_selecionadas.set_index('Ações')['Preço'])
 
-    # --- Depósitos USDT ---
-    st.markdown("---")
-    deposits_page()
-
 def perfil_page():
     st.markdown("<h2 style='text-align: center;'>Perfil</h2>", unsafe_allow_html=True)
+
     if not st.session_state.user_info:
         with st.spinner("Carregando perfil..."):
             response = get_user_data_from_db(st.session_state.local_id, st.session_state.id_token)
@@ -342,6 +319,30 @@ def perfil_page():
     if st.button("Voltar"):
         navigate_to('home')
 
+def deposito_page():
+    st.markdown("<h2 style='text-align: center;'>Depósito</h2>", unsafe_allow_html=True)
+    user_id = st.session_state.local_id
+    endereco_binance = "SEU_ENDERECO_USDT_BINANCE"  # Coloque seu endereço TRC20/USDT aqui
+
+    st.info(f"Envie USDT para este endereço: **{endereco_binance}**")
+
+    with st.form("deposit_form"):
+        valor = st.number_input("Digite o valor enviado", min_value=0.0, step=0.01)
+        enviar_btn = st.form_submit_button("Confirmar Depósito")
+
+    if enviar_btn:
+        if valor <= 0:
+            show_message("Atenção", "Informe um valor válido.", "error")
+        else:
+            st.info("Verificando depósito...")
+            if check_user_deposit(user_id, valor):
+                show_message("Sucesso", f"Depósito de {valor} USDT confirmado e creditado!")
+            else:
+                show_message("Aguardando confirmação na blockchain.", "info")
+
+    if st.button("Voltar"):
+        navigate_to('home')
+
 # --- Lógica Principal ---
 def main():
     st.set_page_config(page_title="App Burgos", page_icon=":shield:")
@@ -355,6 +356,8 @@ def main():
         home_page()
     elif st.session_state.page == 'perfil' and st.session_state.id_token:
         perfil_page()
+    elif st.session_state.page == 'deposito' and st.session_state.id_token:
+        deposito_page()
     else:
         navigate_to('login')
 
