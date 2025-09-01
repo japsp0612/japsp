@@ -2,9 +2,9 @@ import streamlit as st
 import requests
 import time
 import base64
+import pandas as pd
 
-# Carregando as chaves do Firebase de forma segura usando st.secrets
-# Para isso, você deve criar um arquivo .streamlit/secrets.toml com as chaves.
+# --- Carregando chaves do Firebase ---
 try:
     API_KEY = st.secrets["firebase"]["api_key"]
     PROJECT_URL = st.secrets["firebase"]["project_url"]
@@ -13,9 +13,7 @@ except KeyError:
     st.error("As chaves do Firebase não foram encontradas. Por favor, adicione-as ao arquivo `.streamlit/secrets.toml`.")
     st.stop()
 
-
-# --- Gerenciamento de Estado (Substituindo o Gerenciador de Telas do Kivy) ---
-# Este dicionário armazena variáveis que persistem entre as execuções do aplicativo.
+# --- Gerenciamento de Estado ---
 if 'page' not in st.session_state:
     st.session_state.page = 'login'
 if 'id_token' not in st.session_state:
@@ -29,80 +27,62 @@ if 'show_reset_form' not in st.session_state:
 
 # --- Funções de Ajuda ---
 def show_message(title, message, type="info"):
-    """Exibe uma caixa de mensagem na página."""
     if type == "error":
         st.error(f"**{title}**\n\n{message}")
     else:
         st.info(f"**{title}**\n\n{message}")
 
 def navigate_to(page_name):
-    """Muda a página atual e re-executa o aplicativo."""
     st.session_state.page = page_name
     st.rerun()
 
-# --- Chamadas da API do Firebase ---
+# --- Firebase API ---
 def login_user(email, password):
-    """Lida com o login do usuário usando a Autenticação do Firebase."""
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
     payload = {"email": email, "password": password, "returnSecureToken": True}
-    response = requests.post(url, json=payload)
-    return response
+    return requests.post(url, json=payload)
 
 def signup_user(email, password):
-    """Lida com o registro de usuário usando a Autenticação do Firebase."""
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
     payload = {"email": email, "password": password, "returnSecureToken": True}
-    response = requests.post(url, json=payload)
-    return response
+    return requests.post(url, json=payload)
 
 def send_verification_email(id_token):
-    """Envia um e-mail de verificação para o usuário."""
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={API_KEY}"
     payload = {"requestType": "VERIFY_EMAIL", "idToken": id_token}
     requests.post(url, json=payload)
 
 def update_password(id_token, new_password):
-    """Atualiza a senha do usuário."""
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:update?key={API_KEY}"
     payload = {"idToken": id_token, "password": new_password, "returnSecureToken": True}
-    response = requests.post(url, json=payload)
-    return response
+    return requests.post(url, json=payload)
 
 def reset_password(email):
-    """Envia um e-mail de redefinição de senha."""
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={API_KEY}"
     payload = {"requestType": "PASSWORD_RESET", "email": email}
     requests.post(url, json=payload)
 
 def upload_profile_photo(local_id, photo_data):
-    """Envia uma foto de perfil para o Firebase Storage."""
     url = f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o?uploadType=media&name={local_id}.jpg"
     headers = {"Content-Type": "image/jpeg"}
-    response = requests.post(url, headers=headers, data=photo_data)
-    return response
+    return requests.post(url, headers=headers, data=photo_data)
 
 def save_user_data_to_db(local_id, id_token, data):
-    """Salva ou atualiza os dados do usuário no Firebase Realtime Database."""
     url = f"{PROJECT_URL}/usuarios/{local_id}.json?auth={id_token}"
-    response = requests.patch(url, json=data)
-    return response
+    return requests.patch(url, json=data)
 
 def get_user_data_from_db(local_id, id_token):
-    """Busca os dados do usuário no Firebase Realtime Database."""
     url = f"{PROJECT_URL}/usuarios/{local_id}.json?auth={id_token}"
-    response = requests.get(url)
-    return response
+    return requests.get(url)
 
-# --- Telas do Aplicativo ---
+# --- Telas ---
 def login_page():
-    """Renderiza a página de login."""
     st.markdown("<h2 style='text-align: center;'>Login</h2>", unsafe_allow_html=True)
     with st.form("login_form"):
         email = st.text_input("E-mail", placeholder="E-mail")
         password = st.text_input("Senha", placeholder="Senha", type="password")
         login_button = st.form_submit_button("Entrar")
 
-    # Botões fora do formulário para evitar o erro "StreamlitAPIException"
     if login_button:
         if not email or not password:
             show_message("Atenção", "Preencha todos os campos.", "error")
@@ -114,7 +94,7 @@ def login_page():
                     st.session_state.id_token = data['idToken']
                     st.session_state.local_id = data['localId']
                     
-                    # Verifica o status do e-mail
+                    # Verifica e-mail
                     url_verify = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={API_KEY}"
                     payload_verify = {"idToken": st.session_state.id_token}
                     response_verify = requests.post(url_verify, json=payload_verify)
@@ -124,24 +104,14 @@ def login_page():
                             navigate_to('home')
                         else:
                             show_message("Atenção", "Verifique seu e-mail antes de fazer login.", "error")
-                            st.session_state.show_resend_button = True
                     else:
                         show_message("Erro", "Erro ao verificar e-mail.", "error")
                 else:
                     show_message("Erro", "Erro ao fazer login. Verifique seu e-mail e senha.", "error")
 
-    # Botões de navegação e recuperação de senha fora do formulário de login
-    st.markdown("---") # Separador visual para melhor organização
+    st.markdown("---")
     if st.button("Criar uma conta"):
         navigate_to('cadastro')
-
-    if st.button("Reenviar verificação de e-mail"):
-        if st.session_state.id_token:
-            send_verification_email(st.session_state.id_token)
-            show_message("Sucesso", "E-mail de verificação reenviado.")
-        else:
-            show_message("Atenção", "Faça login primeiro para reenviar o e-mail.")
-
     if st.button("Esqueceu a senha?"):
         st.session_state.show_reset_form = True
 
@@ -149,7 +119,6 @@ def login_page():
         with st.form("reset_password_form"):
             email_to_reset = st.text_input("Informe seu e-mail para recuperar a senha:", key="reset_email_input")
             reset_button = st.form_submit_button("Enviar e-mail de recuperação")
-            
             if reset_button:
                 if not email_to_reset:
                     show_message("Atenção", "Informe seu e-mail.")
@@ -160,7 +129,6 @@ def login_page():
                         st.session_state.show_reset_form = False
 
 def cadastro_page():
-    """Renderiza a página de cadastro."""
     st.markdown("<h2 style='text-align: center;'>Cadastro</h2>", unsafe_allow_html=True)
     with st.form("cadastro_form"):
         nome = st.text_input("Nome", placeholder="Nome")
@@ -181,13 +149,7 @@ def cadastro_page():
                     st.session_state.id_token = data['idToken']
                     st.session_state.local_id = data['localId']
                     
-                    user_data = {
-                        "nome": nome,
-                        "sobrenome": sobrenome,
-                        "telefone": telefone,
-                        "email": email,
-                    }
-                    
+                    user_data = {"nome": nome, "sobrenome": sobrenome, "telefone": telefone, "email": email}
                     save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, user_data)
                     if save_response.status_code == 200:
                         send_verification_email(st.session_state.id_token)
@@ -198,15 +160,15 @@ def cadastro_page():
                 else:
                     show_message("Erro", "Erro ao cadastrar. Verifique se o e-mail já está em uso.", "error")
 
-    # Botão de navegação fora do formulário de cadastro
     if st.button("Já tem uma conta? Login"):
         navigate_to('login')
 
 def home_page():
-    """Renderiza a página inicial."""
+    """Home com painel de ações"""
     user_name = st.session_state.user_info.get('nome', '')
     st.markdown(f"<h2 style='text-align: center;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
-    col1, col2 = st.columns([1, 1])
+    
+    col1, col2 = st.columns([1,1])
     with col1:
         if st.button("Ver Perfil"):
             navigate_to('perfil')
@@ -217,11 +179,29 @@ def home_page():
             st.session_state.user_info = {}
             navigate_to('login')
 
+    st.markdown("---")
+
+    # --- Painel de Ações ---
+    df = pd.DataFrame({
+        'Ações': ['ITUB4', 'PETR4', 'VALE3', 'BBDC4', 'ABEV3'],
+        'Preço': [25.3, 30.5, 88.7, 23.1, 15.4]
+    })
+
+    lista_acoes = st.sidebar.multiselect(
+        "Escolha as ações que deseja visualizar:",
+        options=df['Ações'],
+        default=df['Ações'].tolist()
+    )
+
+    df_selecionadas = df[df['Ações'].isin(lista_acoes)]
+    st.subheader("Ações Selecionadas")
+    st.dataframe(df_selecionadas)
+    st.subheader("Gráfico de Preço das Ações Selecionadas")
+    st.bar_chart(df_selecionadas.set_index('Ações')['Preço'])
+
 def perfil_page():
-    """Renderiza a página de perfil do usuário."""
     st.markdown("<h2 style='text-align: center;'>Perfil</h2>", unsafe_allow_html=True)
 
-    # Carrega os dados do usuário
     if not st.session_state.user_info:
         with st.spinner("Carregando perfil..."):
             response = get_user_data_from_db(st.session_state.local_id, st.session_state.id_token)
@@ -231,49 +211,38 @@ def perfil_page():
                 show_message("Erro", "Erro ao carregar perfil.", "error")
                 st.session_state.user_info = {}
 
-    # Seção da foto de perfil
-    # Usando o st.columns para centralizar os elementos
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
         photo_url = st.session_state.user_info.get('foto_perfil')
-        
-        # CSS para a imagem redonda e maior
         css_style = """
             <style>
                 .profile-picture {
                     border-radius: 50%;
-                    width: 200px; /* Aumenta o tamanho da imagem */
-                    height: 200px; /* Aumenta o tamanho da imagem */
+                    width: 200px;
+                    height: 200px;
                     object-fit: cover;
                     border: 3px solid #ddd;
-                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
                     display: block;
                     margin: 0 auto;
                 }
             </style>
         """
         st.markdown(css_style, unsafe_allow_html=True)
-
-        # Exibe a foto de perfil com a classe CSS
         if photo_url:
-            st.markdown(f'<img src="{photo_url}" class="profile-picture" alt="Foto de Perfil">', unsafe_allow_html=True)
+            st.markdown(f'<img src="{photo_url}" class="profile-picture">', unsafe_allow_html=True)
         else:
-            st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture" alt="Sem Foto">', unsafe_allow_html=True)
-        
-        # Exibe o nome completo do usuário
-        full_name = f"{st.session_state.user_info.get('nome', '')} {st.session_state.user_info.get('sobrenome', '')}"
-        st.markdown(f"<h3 style='text-align: center;'>{full_name}</h3>", unsafe_allow_html=True)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture">', unsafe_allow_html=True)
 
-        # Move a opção de carregar a foto para baixo da imagem de perfil
-        uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg", "jpeg", "png"])
+        full_name = f"{st.session_state.user_info.get('nome','')} {st.session_state.user_info.get('sobrenome','')}"
+        st.markdown(f"<h3 style='text-align:center;'>{full_name}</h3>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg","jpeg","png"])
         if uploaded_file:
             with st.spinner("Enviando foto..."):
                 photo_data = uploaded_file.getvalue()
                 response = upload_profile_photo(st.session_state.local_id, photo_data)
-                if response.status_code in (200, 201):
+                if response.status_code in (200,201):
                     link_foto = f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/{st.session_state.local_id}.jpg?alt=media&time={int(time.time())}"
                     save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, {"foto_perfil": link_foto})
                     if save_response.status_code == 200:
@@ -283,52 +252,44 @@ def perfil_page():
                         show_message("Erro", "Erro ao salvar link da foto no banco.", "error")
                 else:
                     show_message("Erro", f"Erro ao enviar foto: {response.text}", "error")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Formulário de dados do perfil
     with st.form("perfil_form"):
-        nome = st.text_input("Nome", value=st.session_state.user_info.get('nome', ''))
-        sobrenome = st.text_input("Sobrenome", value=st.session_state.user_info.get('sobrenome', ''))
-        telefone = st.text_input("Telefone (com DDD)", value=st.session_state.user_info.get('telefone', ''))
+        nome = st.text_input("Nome", value=st.session_state.user_info.get('nome',''))
+        sobrenome = st.text_input("Sobrenome", value=st.session_state.user_info.get('sobrenome',''))
+        telefone = st.text_input("Telefone (com DDD)", value=st.session_state.user_info.get('telefone',''))
         nova_senha = st.text_input("Nova Senha (opcional)", type="password")
-        
         save_button = st.form_submit_button("Salvar Alterações")
 
     if save_button:
-        if not all([nome, sobrenome, telefone]):
-            show_message("Atenção", "Preencha nome, sobrenome e telefone.", "error")
+        if not all([nome,sobrenome,telefone]):
+            show_message("Atenção","Preencha nome, sobrenome e telefone.","error")
         else:
             with st.spinner("Salvando dados..."):
-                updated_data = {
-                    "nome": nome,
-                    "sobrenome": sobrenome,
-                    "telefone": telefone,
-                }
+                updated_data = {"nome":nome,"sobrenome":sobrenome,"telefone":telefone}
                 save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, updated_data)
-                
                 if save_response.status_code == 200:
                     if nova_senha:
                         update_response = update_password(st.session_state.id_token, nova_senha)
                         if update_response.status_code == 200:
                             st.session_state.id_token = update_response.json()['idToken']
-                            show_message("Sucesso", "Dados e senha atualizados!")
+                            show_message("Sucesso","Dados e senha atualizados!")
                         else:
-                            show_message("Erro", "Erro ao atualizar senha.", "error")
+                            show_message("Erro","Erro ao atualizar senha.","error")
                     else:
-                        show_message("Sucesso", "Dados atualizados!")
-                    st.session_state.user_info = updated_data
+                        show_message("Sucesso","Dados atualizados!")
+                    st.session_state.user_info.update(updated_data)
                 else:
-                    show_message("Erro", "Erro ao salvar dados.", "error")
-    
+                    show_message("Erro","Erro ao salvar dados.","error")
+
     if st.button("Voltar"):
         navigate_to('home')
 
-
-# --- Lógica Principal do Aplicativo ---
+# --- Lógica Principal ---
 def main():
-    """Função principal para renderizar a página atual."""
     st.set_page_config(page_title="App Burgos", page_icon=":shield:")
     st.markdown("<style> .stButton>button { width: 100%; } </style>", unsafe_allow_html=True)
-    
+
     if st.session_state.page == 'login':
         login_page()
     elif st.session_state.page == 'cadastro':
@@ -338,7 +299,6 @@ def main():
     elif st.session_state.page == 'perfil' and st.session_state.id_token:
         perfil_page()
     else:
-        # Redireciona para o login se não estiver autenticado ou a página for inválida
         navigate_to('login')
 
 if __name__ == "__main__":
