@@ -3,15 +3,22 @@ import requests
 import time
 import base64
 import pandas as pd
+from binance.client import Client
 
-# --- Carregando chaves do Firebase ---
+# --- Carregando chaves do Firebase e Binance ---
 try:
     API_KEY = st.secrets["firebase"]["api_key"]
     PROJECT_URL = st.secrets["firebase"]["project_url"]
     STORAGE_BUCKET = st.secrets["firebase"]["storage_bucket"]
+    BINANCE_API_KEY = st.secrets["binance"]["api_key"]
+    BINANCE_API_SECRET = st.secrets["binance"]["api_secret"]
+    USDT_ADDRESS = st.secrets["binance"]["usdt_address"]
 except KeyError:
-    st.error("As chaves do Firebase não foram encontradas. Por favor, adicione-as ao arquivo `.streamlit/secrets.toml`.")
+    st.error("As chaves do Firebase/Binance não foram encontradas no secrets.toml.")
     st.stop()
+
+# --- Cliente Binance ---
+client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 
 # --- Gerenciamento de Estado ---
 if 'page' not in st.session_state:
@@ -149,7 +156,7 @@ def cadastro_page():
                     st.session_state.id_token = data['idToken']
                     st.session_state.local_id = data['localId']
                     
-                    user_data = {"nome": nome, "sobrenome": sobrenome, "telefone": telefone, "email": email}
+                    user_data = {"nome": nome, "sobrenome": sobrenome, "telefone": telefone, "email": email, "saldo_usdt": 0}
                     save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, user_data)
                     if save_response.status_code == 200:
                         send_verification_email(st.session_state.id_token)
@@ -164,15 +171,17 @@ def cadastro_page():
         navigate_to('login')
 
 def home_page():
-    """Home com painel de ações"""
     user_name = st.session_state.user_info.get('nome', '')
     st.markdown(f"<h2 style='text-align: center;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns([1,1])
+    col1, col2, col3 = st.columns([1,1,1])
     with col1:
         if st.button("Ver Perfil"):
             navigate_to('perfil')
     with col2:
+        if st.button("Depositar USDT"):
+            navigate_to('deposito')
+    with col3:
         if st.button("Sair"):
             st.session_state.id_token = None
             st.session_state.local_id = None
@@ -180,28 +189,16 @@ def home_page():
             navigate_to('login')
 
     st.markdown("---")
-
-    # --- Painel de Ações ---
-    df = pd.DataFrame({
-        'Ações': ['ITUB4', 'PETR4', 'VALE3', 'BBDC4', 'ABEV3'],
-        'Preço': [25.3, 30.5, 88.7, 23.1, 15.4]
-    })
-
-    lista_acoes = st.sidebar.multiselect(
-        "Escolha as ações que deseja visualizar:",
-        options=df['Ações'],
-        default=df['Ações'].tolist()
-    )
-
+    df = pd.DataFrame({'Ações': ['ITUB4','PETR4','VALE3','BBDC4','ABEV3'], 'Preço':[25.3,30.5,88.7,23.1,15.4]})
+    lista_acoes = st.sidebar.multiselect("Escolha as ações:", options=df['Ações'], default=df['Ações'].tolist())
     df_selecionadas = df[df['Ações'].isin(lista_acoes)]
     st.subheader("Ações Selecionadas")
     st.dataframe(df_selecionadas)
-    st.subheader("Gráfico de Preço das Ações Selecionadas")
+    st.subheader("Gráfico de Preço")
     st.bar_chart(df_selecionadas.set_index('Ações')['Preço'])
 
 def perfil_page():
     st.markdown("<h2 style='text-align: center;'>Perfil</h2>", unsafe_allow_html=True)
-
     if not st.session_state.user_info:
         with st.spinner("Carregando perfil..."):
             response = get_user_data_from_db(st.session_state.local_id, st.session_state.id_token)
@@ -217,16 +214,7 @@ def perfil_page():
         photo_url = st.session_state.user_info.get('foto_perfil')
         css_style = """
             <style>
-                .profile-picture {
-                    border-radius: 50%;
-                    width: 200px;
-                    height: 200px;
-                    object-fit: cover;
-                    border: 3px solid #ddd;
-                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                    display: block;
-                    margin: 0 auto;
-                }
+                .profile-picture { border-radius: 50%; width: 200px; height: 200px; object-fit: cover; border:3px solid #ddd; box-shadow:0 4px 8px rgba(0,0,0,0.1); display:block; margin:0 auto; }
             </style>
         """
         st.markdown(css_style, unsafe_allow_html=True)
@@ -234,7 +222,6 @@ def perfil_page():
             st.markdown(f'<img src="{photo_url}" class="profile-picture">', unsafe_allow_html=True)
         else:
             st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture">', unsafe_allow_html=True)
-
         full_name = f"{st.session_state.user_info.get('nome','')} {st.session_state.user_info.get('sobrenome','')}"
         st.markdown(f"<h3 style='text-align:center;'>{full_name}</h3>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg","jpeg","png"])
@@ -285,6 +272,42 @@ def perfil_page():
     if st.button("Voltar"):
         navigate_to('home')
 
+def deposito_page():
+    st.markdown("<h2 style='text-align: center;'>Depositar USDT</h2>", unsafe_allow_html=True)
+    st.info(f"Deposite USDT neste endereço: **{USDT_ADDRESS}**")
+    saldo = st.session_state.user_info.get("saldo_usdt", 0)
+    st.write(f"Saldo USDT atual: **{saldo} USDT**")
+
+    with st.form("deposit_form"):
+        valor_deposito = st.number_input("Valor de USDT que você enviou", min_value=0.0, step=0.1)
+        deposit_button = st.form_submit_button("Confirmar Depósito")
+
+    if deposit_button:
+        if valor_deposito <= 0:
+            show_message("Atenção", "Informe um valor válido.", "error")
+        else:
+            with st.spinner("Verificando depósito na Binance..."):
+                try:
+                    deposits = client.get_deposit_history(coin='USDT')
+                    deposit_confirmed = False
+                    for dep in deposits['depositList']:
+                        if float(dep['amount']) >= valor_deposito and dep['address'] == USDT_ADDRESS and dep['status'] == 1:
+                            deposit_confirmed = True
+                            break
+
+                    if deposit_confirmed:
+                        novo_saldo = saldo + valor_deposito
+                        save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, {"saldo_usdt": novo_saldo})
+                        st.session_state.user_info['saldo_usdt'] = novo_saldo
+                        show_message("Sucesso", f"Depósito de {valor_deposito} USDT confirmado! Saldo atualizado: {novo_saldo} USDT")
+                    else:
+                        show_message("Atenção", "Depósito ainda não confirmado na Binance. Tente novamente em alguns minutos.", "error")
+                except Exception as e:
+                    show_message("Erro", f"Ocorreu um erro ao consultar a Binance: {e}", "error")
+
+    if st.button("Voltar"):
+        navigate_to('home')
+
 # --- Lógica Principal ---
 def main():
     st.set_page_config(page_title="App Burgos", page_icon=":shield:")
@@ -298,9 +321,10 @@ def main():
         home_page()
     elif st.session_state.page == 'perfil' and st.session_state.id_token:
         perfil_page()
+    elif st.session_state.page == 'deposito' and st.session_state.id_token:
+        deposito_page()
     else:
         navigate_to('login')
 
 if __name__ == "__main__":
     main()
-
