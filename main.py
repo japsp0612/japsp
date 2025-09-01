@@ -1,31 +1,30 @@
 import streamlit as st
 import requests
 import time
-import base64
 import pandas as pd
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
-# --- Carregando chaves do Firebase ---
+# --- Carregando chaves ---
 try:
     API_KEY = st.secrets["firebase"]["api_key"]
     PROJECT_URL = st.secrets["firebase"]["project_url"]
     STORAGE_BUCKET = st.secrets["firebase"]["storage_bucket"]
-except KeyError:
-    st.error("As chaves do Firebase não foram encontradas. Adicione no arquivo `.streamlit/secrets.toml`.")
-    st.stop()
 
-# --- Chaves Binance ---
-try:
     BINANCE_API_KEY = st.secrets["binance"]["api_key"]
     BINANCE_API_SECRET = st.secrets["binance"]["api_secret"]
 except KeyError:
-    st.error("As chaves da Binance não foram encontradas. Adicione no secrets.toml.")
+    st.error("As chaves não foram encontradas no secrets.toml")
     st.stop()
 
-binance_client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
+# --- Inicializar cliente Binance Testnet ---
+try:
+    client_binance = Client(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=True)
+except BinanceAPIException as e:
+    st.error(f"Erro na conexão com Binance: {e}")
+    st.stop()
 
-# --- Gerenciamento de Estado ---
+# --- Estado do Streamlit ---
 if 'page' not in st.session_state:
     st.session_state.page = 'login'
 if 'id_token' not in st.session_state:
@@ -34,12 +33,10 @@ if 'local_id' not in st.session_state:
     st.session_state.local_id = None
 if 'user_info' not in st.session_state:
     st.session_state.user_info = {}
-if 'show_reset_form' not in st.session_state:
-    st.session_state.show_reset_form = False
 
-# --- Funções de Ajuda ---
+# --- Funções auxiliares ---
 def show_message(title, message, type="info"):
-    if type == "error":
+    if type=="error":
         st.error(f"**{title}**\n\n{message}")
     else:
         st.info(f"**{title}**\n\n{message}")
@@ -48,7 +45,7 @@ def navigate_to(page_name):
     st.session_state.page = page_name
     st.rerun()
 
-# --- Firebase API ---
+# --- Firebase ---
 def login_user(email, password):
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
     payload = {"email": email, "password": password, "returnSecureToken": True}
@@ -87,279 +84,102 @@ def get_user_data_from_db(local_id, id_token):
     url = f"{PROJECT_URL}/usuarios/{local_id}.json?auth={id_token}"
     return requests.get(url)
 
-# --- Binance Funções de Depósito ---
-def get_deposit_history(asset="USDT"):
-    """Retorna depósitos confirmados da Binance"""
-    try:
-        deposits = binance_client.get_deposit_history(asset=asset)
-        return deposits.get('depositList', [])
-    except BinanceAPIException as e:
-        st.error(f"Erro ao consultar Binance: {str(e)}")
-        return []
-
-def check_user_deposit(user_id, expected_amount, asset="USDT"):
-    """Verifica se o usuário enviou a quantia informada"""
-    deposits = get_deposit_history(asset)
-    for dep in deposits:
-        if float(dep['amount']) == expected_amount and dep['status'] == 1:
-            # Atualiza saldo no Firebase
-            save_user_data_to_db(user_id, st.session_state.id_token, {"saldo": expected_amount})
-            return True
-    return False
-
-# --- Telas ---
+# --- Páginas ---
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>Login</h2>", unsafe_allow_html=True)
+    st.title("Login")
     with st.form("login_form"):
-        email = st.text_input("E-mail", placeholder="E-mail")
-        password = st.text_input("Senha", placeholder="Senha", type="password")
-        login_button = st.form_submit_button("Entrar")
-
-    if login_button:
-        if not email or not password:
-            show_message("Atenção", "Preencha todos os campos.", "error")
+        email = st.text_input("E-mail")
+        senha = st.text_input("Senha", type="password")
+        btn = st.form_submit_button("Entrar")
+    if btn:
+        if not email or not senha:
+            show_message("Erro", "Preencha todos os campos.", "error")
         else:
-            with st.spinner("Entrando..."):
-                response = login_user(email, password)
-                if response.status_code == 200:
-                    data = response.json()
-                    st.session_state.id_token = data['idToken']
-                    st.session_state.local_id = data['localId']
-                    
-                    url_verify = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={API_KEY}"
-                    payload_verify = {"idToken": st.session_state.id_token}
-                    response_verify = requests.post(url_verify, json=payload_verify)
-                    if response_verify.status_code == 200:
-                        is_email_verified = response_verify.json()['users'][0]['emailVerified']
-                        if is_email_verified:
-                            navigate_to('home')
-                        else:
-                            show_message("Atenção", "Verifique seu e-mail antes de fazer login.", "error")
-                    else:
-                        show_message("Erro", "Erro ao verificar e-mail.", "error")
-                else:
-                    show_message("Erro", "Erro ao fazer login. Verifique seu e-mail e senha.", "error")
-
-    st.markdown("---")
-    if st.button("Criar uma conta"):
-        navigate_to('cadastro')
-    if st.button("Esqueceu a senha?"):
-        st.session_state.show_reset_form = True
-
-    if st.session_state.show_reset_form:
-        with st.form("reset_password_form"):
-            email_to_reset = st.text_input("Informe seu e-mail para recuperar a senha:", key="reset_email_input")
-            reset_button = st.form_submit_button("Enviar e-mail de recuperação")
-            if reset_button:
-                if not email_to_reset:
-                    show_message("Atenção", "Informe seu e-mail.")
-                else:
-                    with st.spinner("Enviando e-mail..."):
-                        reset_password(email_to_reset)
-                        show_message("Sucesso", "E-mail de recuperação enviado! Verifique sua caixa de entrada.")
-                        st.session_state.show_reset_form = False
+            r = login_user(email, senha)
+            if r.status_code==200:
+                data = r.json()
+                st.session_state.id_token = data["idToken"]
+                st.session_state.local_id = data["localId"]
+                navigate_to("home")
+            else:
+                show_message("Erro", "E-mail ou senha inválidos", "error")
+    if st.button("Criar conta"):
+        navigate_to("cadastro")
 
 def cadastro_page():
-    st.markdown("<h2 style='text-align: center;'>Cadastro</h2>", unsafe_allow_html=True)
-    with st.form("cadastro_form"):
-        nome = st.text_input("Nome", placeholder="Nome")
-        sobrenome = st.text_input("Sobrenome", placeholder="Sobrenome")
-        telefone = st.text_input("Telefone (com DDD)", placeholder="Telefone (com DDD)")
-        email = st.text_input("E-mail", placeholder="E-mail")
-        senha = st.text_input("Senha", placeholder="Senha", type="password")
-        cadastro_button = st.form_submit_button("Cadastrar")
-
-    if cadastro_button:
-        if not all([nome, sobrenome, telefone, email, senha]):
-            show_message("Atenção", "Preencha todos os campos.", "error")
+    st.title("Cadastro")
+    with st.form("cad_form"):
+        nome = st.text_input("Nome")
+        email = st.text_input("E-mail")
+        senha = st.text_input("Senha", type="password")
+        btn = st.form_submit_button("Cadastrar")
+    if btn:
+        if not nome or not email or not senha:
+            show_message("Erro", "Preencha todos os campos", "error")
         else:
-            with st.spinner("Cadastrando..."):
-                response = signup_user(email, senha)
-                if response.status_code == 200:
-                    data = response.json()
-                    st.session_state.id_token = data['idToken']
-                    st.session_state.local_id = data['localId']
-                    
-                    user_data = {"nome": nome, "sobrenome": sobrenome, "telefone": telefone, "email": email, "saldo": 0.0}
-                    save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, user_data)
-                    if save_response.status_code == 200:
-                        send_verification_email(st.session_state.id_token)
-                        show_message("Sucesso", "Cadastro realizado! Verifique seu e-mail para continuar.")
-                        navigate_to('login')
-                    else:
-                        show_message("Erro", "Erro ao salvar dados do usuário.", "error")
-                else:
-                    show_message("Erro", "Erro ao cadastrar. Verifique se o e-mail já está em uso.", "error")
-
-    if st.button("Já tem uma conta? Login"):
-        navigate_to('login')
+            r = signup_user(email, senha)
+            if r.status_code==200:
+                data = r.json()
+                st.session_state.id_token = data["idToken"]
+                st.session_state.local_id = data["localId"]
+                user_data = {"nome": nome, "email": email, "saldo": 0}
+                save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, user_data)
+                send_verification_email(st.session_state.id_token)
+                show_message("Sucesso", "Cadastro feito! Verifique seu e-mail")
+                navigate_to("login")
+            else:
+                show_message("Erro", "Erro ao cadastrar, email já existe?", "error")
 
 def home_page():
-    """Home com painel de ações"""
-    user_name = st.session_state.user_info.get('nome', '')
-    st.markdown(f"<h2 style='text-align: center;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1,1,1])
-    with col1:
-        if st.button("Ver Perfil"):
-            navigate_to('perfil')
-    with col2:
-        if st.button("Depósito"):
-            navigate_to('deposito')
-    with col3:
-        if st.button("Sair"):
-            st.session_state.id_token = None
-            st.session_state.local_id = None
-            st.session_state.user_info = {}
-            navigate_to('login')
+    st.title(f"Bem-vindo, {st.session_state.user_info.get('nome','Usuário')}")
 
-    st.markdown("---")
+    # --- Saldo Firebase ---
+    r = get_user_data_from_db(st.session_state.local_id, st.session_state.id_token)
+    if r.status_code==200:
+        user_data = r.json()
+        st.session_state.user_info = user_data
+        st.write(f"Saldo atual: ${user_data.get('saldo',0)}")
 
-    # --- Painel de Ações ---
-    df = pd.DataFrame({
-        'Ações': ['ITUB4', 'PETR4', 'VALE3', 'BBDC4', 'ABEV3'],
-        'Preço': [25.3, 30.5, 88.7, 23.1, 15.4]
-    })
+    # --- Saldo Binance Testnet ---
+    st.subheader("Saldo Binance Testnet")
+    try:
+        balances = client_binance.get_account()["balances"]
+        df = [{"Moeda":b["asset"], "Livre":float(b["free"]), "Bloqueado":float(b["locked"])} for b in balances if float(b["free"])>0 or float(b["locked"])>0]
+        st.dataframe(pd.DataFrame(df))
+    except BinanceAPIException as e:
+        st.error(f"Erro: {e}")
 
-    lista_acoes = st.sidebar.multiselect(
-        "Escolha as ações que deseja visualizar:",
-        options=df['Ações'],
-        default=df['Ações'].tolist()
-    )
+    # --- Monitorar depósitos ---
+    st.subheader("Depósitos USDT")
+    if st.button("Atualizar depósitos"):
+        try:
+            deposits = client_binance.get_deposit_history(asset="USDT")
+            df_dep = pd.DataFrame(deposits["depositList"])
+            st.dataframe(df_dep)
+            # Exemplo: Atualizar saldo do usuário automaticamente com depósitos
+            total_deposit = sum(float(d["amount"]) for d in deposits["depositList"])
+            st.write(f"Total de depósitos: {total_deposit} USDT")
+            # Atualiza saldo no Firebase
+            save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, {"saldo": total_deposit})
+        except BinanceAPIException as e:
+            st.error(f"Erro ao buscar depósitos: {e}")
 
-    df_selecionadas = df[df['Ações'].isin(lista_acoes)]
-    st.subheader("Ações Selecionadas")
-    st.dataframe(df_selecionadas)
-    st.subheader("Gráfico de Preço das Ações Selecionadas")
-    st.bar_chart(df_selecionadas.set_index('Ações')['Preço'])
+    if st.button("Sair"):
+        st.session_state.page="login"
+        st.session_state.id_token=None
+        st.session_state.local_id=None
+        st.session_state.user_info={}
 
-def perfil_page():
-    st.markdown("<h2 style='text-align: center;'>Perfil</h2>", unsafe_allow_html=True)
-
-    if not st.session_state.user_info:
-        with st.spinner("Carregando perfil..."):
-            response = get_user_data_from_db(st.session_state.local_id, st.session_state.id_token)
-            if response.status_code == 200:
-                st.session_state.user_info = response.json()
-            else:
-                show_message("Erro", "Erro ao carregar perfil.", "error")
-                st.session_state.user_info = {}
-
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-        photo_url = st.session_state.user_info.get('foto_perfil')
-        css_style = """
-            <style>
-                .profile-picture {
-                    border-radius: 50%;
-                    width: 200px;
-                    height: 200px;
-                    object-fit: cover;
-                    border: 3px solid #ddd;
-                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                    display: block;
-                    margin: 0 auto;
-                }
-            </style>
-        """
-        st.markdown(css_style, unsafe_allow_html=True)
-        if photo_url:
-            st.markdown(f'<img src="{photo_url}" class="profile-picture">', unsafe_allow_html=True)
-        else:
-            st.markdown('<img src="https://placehold.co/200x200?text=Sem+Foto" class="profile-picture">', unsafe_allow_html=True)
-
-        full_name = f"{st.session_state.user_info.get('nome','')} {st.session_state.user_info.get('sobrenome','')}"
-        st.markdown(f"<h3 style='text-align:center;'>{full_name}</h3>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg","jpeg","png"])
-        if uploaded_file:
-            with st.spinner("Enviando foto..."):
-                photo_data = uploaded_file.getvalue()
-                response = upload_profile_photo(st.session_state.local_id, photo_data)
-                if response.status_code in (200,201):
-                    link_foto = f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/{st.session_state.local_id}.jpg?alt=media&time={int(time.time())}"
-                    save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, {"foto_perfil": link_foto})
-                    if save_response.status_code == 200:
-                        st.session_state.user_info['foto_perfil'] = link_foto
-                        show_message("Sucesso", "Foto de perfil atualizada.")
-                    else:
-                        show_message("Erro", "Erro ao salvar link da foto no banco.", "error")
-                else:
-                    show_message("Erro", f"Erro ao enviar foto: {response.text}", "error")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with st.form("perfil_form"):
-        nome = st.text_input("Nome", value=st.session_state.user_info.get('nome',''))
-        sobrenome = st.text_input("Sobrenome", value=st.session_state.user_info.get('sobrenome',''))
-        telefone = st.text_input("Telefone (com DDD)", value=st.session_state.user_info.get('telefone',''))
-        nova_senha = st.text_input("Nova Senha (opcional)", type="password")
-        save_button = st.form_submit_button("Salvar Alterações")
-
-    if save_button:
-        if not all([nome,sobrenome,telefone]):
-            show_message("Atenção","Preencha nome, sobrenome e telefone.","error")
-        else:
-            with st.spinner("Salvando dados..."):
-                updated_data = {"nome":nome,"sobrenome":sobrenome,"telefone":telefone}
-                save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, updated_data)
-                if save_response.status_code == 200:
-                    if nova_senha:
-                        update_response = update_password(st.session_state.id_token, nova_senha)
-                        if update_response.status_code == 200:
-                            st.session_state.id_token = update_response.json()['idToken']
-                            show_message("Sucesso","Dados e senha atualizados!")
-                        else:
-                            show_message("Erro","Erro ao atualizar senha.","error")
-                    else:
-                        show_message("Sucesso","Dados atualizados!")
-                    st.session_state.user_info.update(updated_data)
-                else:
-                    show_message("Erro","Erro ao salvar dados.","error")
-
-    if st.button("Voltar"):
-        navigate_to('home')
-
-def deposito_page():
-    st.markdown("<h2 style='text-align: center;'>Depósito</h2>", unsafe_allow_html=True)
-    user_id = st.session_state.local_id
-    endereco_binance = "SEU_ENDERECO_USDT_BINANCE"  # Coloque seu endereço TRC20/USDT aqui
-
-    st.info(f"Envie USDT para este endereço: **{endereco_binance}**")
-
-    with st.form("deposit_form"):
-        valor = st.number_input("Digite o valor enviado", min_value=0.0, step=0.01)
-        enviar_btn = st.form_submit_button("Confirmar Depósito")
-
-    if enviar_btn:
-        if valor <= 0:
-            show_message("Atenção", "Informe um valor válido.", "error")
-        else:
-            st.info("Verificando depósito...")
-            if check_user_deposit(user_id, valor):
-                show_message("Sucesso", f"Depósito de {valor} USDT confirmado e creditado!")
-            else:
-                show_message("Aguardando confirmação na blockchain.", "info")
-
-    if st.button("Voltar"):
-        navigate_to('home')
-
-# --- Lógica Principal ---
+# --- Lógica principal ---
 def main():
-    st.set_page_config(page_title="App Burgos", page_icon=":shield:")
-    st.markdown("<style> .stButton>button { width: 100%; } </style>", unsafe_allow_html=True)
-
-    if st.session_state.page == 'login':
+    if st.session_state.page=="login":
         login_page()
-    elif st.session_state.page == 'cadastro':
+    elif st.session_state.page=="cadastro":
         cadastro_page()
-    elif st.session_state.page == 'home' and st.session_state.id_token:
+    elif st.session_state.page=="home" and st.session_state.id_token:
         home_page()
-    elif st.session_state.page == 'perfil' and st.session_state.id_token:
-        perfil_page()
-    elif st.session_state.page == 'deposito' and st.session_state.id_token:
-        deposito_page()
     else:
-        navigate_to('login')
+        navigate_to("login")
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
