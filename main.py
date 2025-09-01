@@ -94,7 +94,6 @@ def login_page():
                     st.session_state.id_token = data['idToken']
                     st.session_state.local_id = data['localId']
                     
-                    # Verifica e-mail
                     url_verify = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={API_KEY}"
                     payload_verify = {"idToken": st.session_state.id_token}
                     response_verify = requests.post(url_verify, json=payload_verify)
@@ -164,10 +163,17 @@ def cadastro_page():
         navigate_to('login')
 
 def home_page():
-    """Home com painel de ações"""
+    """Home moderna com painel de ações estilizado"""
+    # Carregar dados do usuário
+    if not st.session_state.user_info and st.session_state.id_token:
+        response = get_user_data_from_db(st.session_state.local_id, st.session_state.id_token)
+        if response.status_code == 200:
+            st.session_state.user_info = response.json()
+
     user_name = st.session_state.user_info.get('nome', '')
-    st.markdown(f"<h2 style='text-align: center;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='text-align: center; color: #4B0082;'>Bem-vindo, {user_name}!</h2>", unsafe_allow_html=True)
     
+    # Botões perfil e sair
     col1, col2 = st.columns([1,1])
     with col1:
         if st.button("Ver Perfil"):
@@ -178,10 +184,10 @@ def home_page():
             st.session_state.local_id = None
             st.session_state.user_info = {}
             navigate_to('login')
-
+    
     st.markdown("---")
 
-    # --- Painel de Ações ---
+    # Painel de Ações
     df = pd.DataFrame({
         'Ações': ['ITUB4', 'PETR4', 'VALE3', 'BBDC4', 'ABEV3'],
         'Preço': [25.3, 30.5, 88.7, 23.1, 15.4]
@@ -194,10 +200,26 @@ def home_page():
     )
 
     df_selecionadas = df[df['Ações'].isin(lista_acoes)]
-    st.subheader("Ações Selecionadas")
-    st.dataframe(df_selecionadas)
+
+    # Cards estilizados
+    st.subheader("Resumo das Ações Selecionadas")
+    if not df_selecionadas.empty:
+        card_cols = st.columns(len(df_selecionadas))
+        for idx, row in df_selecionadas.iterrows():
+            with card_cols[idx]:
+                st.markdown(f"""
+                    <div style="background-color:#E6E6FA; padding:15px; border-radius:10px; text-align:center; box-shadow:2px 2px 5px rgba(0,0,0,0.2);">
+                        <h3 style='margin:0;'>{row['Ações']}</h3>
+                        <p style='font-size:20px; color:#4B0082;'><b>R$ {row['Preço']}</b></p>
+                    </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("Selecione ao menos uma ação.")
+
+    st.markdown("---")
     st.subheader("Gráfico de Preço das Ações Selecionadas")
-    st.bar_chart(df_selecionadas.set_index('Ações')['Preço'])
+    if not df_selecionadas.empty:
+        st.bar_chart(df_selecionadas.set_index('Ações')['Preço'], use_container_width=True)
 
 def perfil_page():
     st.markdown("<h2 style='text-align: center;'>Perfil</h2>", unsafe_allow_html=True)
@@ -211,6 +233,7 @@ def perfil_page():
                 show_message("Erro", "Erro ao carregar perfil.", "error")
                 st.session_state.user_info = {}
 
+    # Foto de perfil
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
@@ -224,8 +247,8 @@ def perfil_page():
                     object-fit: cover;
                     border: 3px solid #ddd;
                     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                    display: block;
-                    margin: 0 auto;
+                    display:block;
+                    margin:0 auto;
                 }
             </style>
         """
@@ -237,6 +260,7 @@ def perfil_page():
 
         full_name = f"{st.session_state.user_info.get('nome','')} {st.session_state.user_info.get('sobrenome','')}"
         st.markdown(f"<h3 style='text-align:center;'>{full_name}</h3>", unsafe_allow_html=True)
+        
         uploaded_file = st.file_uploader("Alterar Foto de Perfil", type=["jpg","jpeg","png"])
         if uploaded_file:
             with st.spinner("Enviando foto..."):
@@ -254,6 +278,7 @@ def perfil_page():
                     show_message("Erro", f"Erro ao enviar foto: {response.text}", "error")
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Formulário de dados do perfil
     with st.form("perfil_form"):
         nome = st.text_input("Nome", value=st.session_state.user_info.get('nome',''))
         sobrenome = st.text_input("Sobrenome", value=st.session_state.user_info.get('sobrenome',''))
@@ -262,30 +287,30 @@ def perfil_page():
         save_button = st.form_submit_button("Salvar Alterações")
 
     if save_button:
-        if not all([nome,sobrenome,telefone]):
-            show_message("Atenção","Preencha nome, sobrenome e telefone.","error")
+        if not all([nome, sobrenome, telefone]):
+            show_message("Atenção", "Preencha nome, sobrenome e telefone.", "error")
         else:
             with st.spinner("Salvando dados..."):
-                updated_data = {"nome":nome,"sobrenome":sobrenome,"telefone":telefone}
+                updated_data = {"nome": nome,"sobrenome": sobrenome,"telefone": telefone}
                 save_response = save_user_data_to_db(st.session_state.local_id, st.session_state.id_token, updated_data)
                 if save_response.status_code == 200:
                     if nova_senha:
                         update_response = update_password(st.session_state.id_token, nova_senha)
                         if update_response.status_code == 200:
                             st.session_state.id_token = update_response.json()['idToken']
-                            show_message("Sucesso","Dados e senha atualizados!")
+                            show_message("Sucesso", "Dados e senha atualizados!")
                         else:
-                            show_message("Erro","Erro ao atualizar senha.","error")
+                            show_message("Erro", "Erro ao atualizar senha.", "error")
                     else:
-                        show_message("Sucesso","Dados atualizados!")
+                        show_message("Sucesso", "Dados atualizados!")
                     st.session_state.user_info.update(updated_data)
                 else:
-                    show_message("Erro","Erro ao salvar dados.","error")
+                    show_message("Erro", "Erro ao salvar dados.", "error")
 
     if st.button("Voltar"):
         navigate_to('home')
 
-# --- Lógica Principal ---
+# --- Main ---
 def main():
     st.set_page_config(page_title="App Burgos", page_icon=":shield:")
     st.markdown("<style> .stButton>button { width: 100%; } </style>", unsafe_allow_html=True)
